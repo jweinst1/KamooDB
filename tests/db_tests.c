@@ -314,6 +314,25 @@ static void test_database_put_get_del(void) {
 	database_close_and_remove(&db);
 }
 
+static void test_database_put_get_reopen(void) {
+	struct database db;
+	const char* key1 = "abcdef";
+	const char* val1 = "abcdefg";
+	char* key1res = NULL;
+	CHECKIT(database_open(&db, "boof", NULL));
+	CHECKIT(database_put(&db, key1, val1));
+	key1res = database_get(&db, key1);
+	CHECKIT(strcmp(key1res, val1) == 0);
+	free(key1res);
+	database_close(&db);
+	memset(&db, 0, sizeof(db));
+	CHECKIT(database_open(&db, "boof", NULL));
+	key1res = database_get(&db, key1);
+	CHECKIT(strcmp(key1res, val1) == 0);
+	free(key1res);
+	database_close_and_remove(&db);
+}
+
 static void test_database_load_factor(void) {
 	struct database db;
 	const char* key1 = "abcdef";
@@ -394,6 +413,7 @@ int main(int argc, char const *argv[])
 	test_database_deallocate();
 	test_database_hash_and_probe();
 	test_database_put_get_del();
+	test_database_put_get_reopen();
 	test_database_load_factor();
 	test_database_expand();
 	return _failures > 0 ? 3 : 0;
