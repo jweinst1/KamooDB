@@ -86,7 +86,7 @@ void page_vec_init(struct page_vec* pvec) {
 void page_vec_push(struct page_vec* pvec, int32_t page_n) {
 	if (pvec->len == pvec->cap) {
 		pvec->cap *= 2;
-		pvec->pages = realloc(pvec->pages, pvec->cap);
+		pvec->pages = realloc(pvec->pages, sizeof(int32_t) * pvec->cap);
 	}
 	pvec->pages[pvec->len++] = page_n;
 }
