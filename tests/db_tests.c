@@ -22,6 +22,22 @@ static void test_djb2_n(void) {
 	CHECKIT(hash1 == base);
 }
 
+static void test_page_vec(void) {
+	struct page_vec pv;
+	page_vec_init(&pv);
+	CHECKIT(pv.len == 0);
+	int times = pv.cap + 2;
+	for (int32_t i = 0; i < times; ++i)
+	{
+		page_vec_push(&pv, i);
+	}
+	CHECKIT(pv.cap > times);
+	page_vec_clear(&pv);
+	CHECKIT(pv.len == 0);
+	page_vec_deinit(&pv);
+	CHECKIT(pv.pages == NULL);
+}
+
 static void test_dbfile_rw(void) {
 	struct dbfile foo;
 	dbfile_open(&foo, "boof", NULL);
@@ -362,6 +378,7 @@ static void test_database_expand(void) {
 int main(int argc, char const *argv[])
 {
 	test_djb2_n();
+	test_page_vec();
 	test_dbfile_rw();
 	test_dbfile_cmp();
 	test_dbfile_hash_null();

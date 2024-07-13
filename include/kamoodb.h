@@ -69,10 +69,44 @@ static char* str_dupl(const char* src) {
 	return newstr;
 }
 
+struct page_vec {
+	size_t len;
+	size_t cap;
+	int32_t* pages;
+};
+
+static const size_t PAGE_VEC_DEF_CAPAC = 50;
+
+void page_vec_init(struct page_vec* pvec) {
+	pvec->len = 0;
+	pvec->cap = PAGE_VEC_DEF_CAPAC;
+	pvec->pages = calloc(1, sizeof(int32_t) * pvec->cap);
+}
+
+void page_vec_push(struct page_vec* pvec, int32_t page_n) {
+	if (pvec->len == pvec->cap) {
+		pvec->cap *= 2;
+		pvec->pages = realloc(pvec->pages, pvec->cap);
+	}
+	pvec->pages[pvec->len++] = page_n;
+}
+
+void page_vec_clear(struct page_vec* pvec) {
+	memset(pvec->pages, 0, sizeof(int32_t) * pvec->len);
+	pvec->len = 0;
+}
+
+void page_vec_deinit(struct page_vec* pvec) {
+	pvec->len = 0;
+	pvec->cap = PAGE_VEC_DEF_CAPAC;
+	free(pvec->pages);
+	pvec->pages = NULL;
+}
+
 enum dbstore_type {
-	DBSTORE_MEM_MAP,
+	DBSTORE_MEM_MAP
 	//DBSTORE_FILE, todo, in future
-	DBSTORE_IN_MEM
+	//DBSTORE_IN_MEM todo, in future
 };
 
 struct dbfile {
@@ -158,6 +192,11 @@ char* dbfile_get_page(struct dbfile* dbf, size_t n) {
 	return dbf->pages[n];
 }
 
+void dbfile_sync_page(struct dbfile* dbf, size_t n) {
+	char* page = dbfile_get_page(dbf, n);
+	msync(page, dbf->page_size, MS_SYNC);
+}
+
 int dbfile_get_place(struct dbfile* dbf, size_t offset, size_t* result) {
 	if (offset >= dbf->file_size) {
 		return 0;
@@ -174,11 +213,9 @@ int dbfile_write(struct dbfile* dbf, size_t offset, const char* data, size_t siz
 	}
 	size_t cur_page = place[0];
 	size_t cur_off = place[1];
-	//printf("cur_page %zu cur off %zu\n", cur_page, cur_off);
 	while (size) {
 		char* page = dbfile_get_page(dbf, cur_page);
 		size_t to_write = dbf->page_size - cur_off;
-		//printf("to write %zu\n", to_write);
 		memcpy(page + cur_off, data,  to_write > size ? size : to_write );
 		size = to_write  > size ? 0 : size - to_write;
 		data += to_write;
@@ -880,7 +917,6 @@ int database_expand(struct database* db, size_t n_blocks) {
 		hashiter = ((int32_t*)(page))[0];
 	}
 	// reset the hash list,
-	//database_set_hash_count(db, (int32_t)next_count);
 	database_set_hashroot(db, new_hash_lists);
 
 	// turn previous hash list into free blocks
