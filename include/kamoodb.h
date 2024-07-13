@@ -220,6 +220,7 @@ int dbfile_write(struct dbfile* dbf, size_t offset, const char* data, size_t siz
 		size = to_write  > size ? 0 : size - to_write;
 		data += to_write;
 		cur_off = 0;
+		// to do page syncing
 		++cur_page; 
 	}
 	return 1;
@@ -235,6 +236,7 @@ int dbfile_write_po(struct dbfile* dbf, size_t page, size_t offset, const char* 
 		size = to_write  > size ? 0 : size - to_write;
 		data += to_write;
 		cur_off = 0;
+		// to do page syncing
 		++cur_page; 
 	}
 	return 1;
