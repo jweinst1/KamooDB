@@ -389,6 +389,7 @@ size_t hashes_per_block(size_t page_size) {
 
 struct database {
 	struct dbfile dbf;
+	struct page_vec hash_pages;
 };
 
 int _has_magic_seq(const char* page) {
@@ -571,13 +572,7 @@ size_t database_get_hash_block_count(struct database* db) {
 }
 
 int32_t database_get_hash_block(struct database* db, size_t n) {
-	int32_t hash_iter = database_get_hashroot(db);
-	while (n-- && hash_iter != -1) {
-		char* hash_page = dbfile_get_page(&db->dbf, hash_iter);
-		int32_t* header = (int32_t*)hash_page;
-		hash_iter = header[0];
-	}
-	return hash_iter;
+	return db->hash_pages.pages[n];
 }
 
 size_t database_get_space_block_count(struct database* db) {
@@ -897,6 +892,16 @@ char* database_adv_to_val(struct database* db, const int32_t* store_ptr, size_t 
 	return strbuf;
 }
 
+void database_populate_hash_pages(struct database* db) {
+	page_vec_clear(&db->hash_pages);
+	int32_t iter = database_get_hashroot(db);
+	while (iter != -1) {
+		page_vec_push(&db->hash_pages, iter);
+		char* page = dbfile_get_page(&db->dbf, iter);
+		iter = ((int32_t*)page)[0];
+	}
+}
+
 int database_expand(struct database* db, size_t n_blocks) {
 	size_t cur_block_count = database_get_hash_block_count(db);
 	size_t next_count = (cur_block_count + n_blocks);
@@ -930,6 +935,7 @@ int database_expand(struct database* db, size_t n_blocks) {
 	}
 	// now recompute the length
 	database_recomp_hash_len(db);
+	database_populate_hash_pages(db);
 	return 1;
 }
 
@@ -1073,18 +1079,22 @@ int database_open(struct database* db, const char* pathfile, struct dbcfg* cfg) 
 		database_init(db);
 	}
 	db->dbf.page_size = database_get_page_size(db);
+	page_vec_init(&db->hash_pages);
+	database_populate_hash_pages(db);
 	return 1;
 }
 
 void database_close(struct database* db) {
 	dbfile_close(&db->dbf);
 	dbfile_path_free(&db->dbf);
+	page_vec_deinit(&db->hash_pages);
 }
 
 void database_close_and_remove(struct database* db) {
 	dbfile_close(&db->dbf);
 	dbfile_remove(&db->dbf);
 	dbfile_path_free(&db->dbf);
+	page_vec_deinit(&db->hash_pages);
 }
 
 #endif // KAMOODB_HEADER
