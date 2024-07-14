@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <time.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
@@ -865,7 +866,6 @@ int32_t* database_rehash_and_probe(struct database* db, int32_t sblock, int32_t*
 }
 
 int32_t database_hashlist_get_n(struct database* db, int32_t hash_list, size_t n) {
-	//printf("hash n %zu, hl %d,  pc, %zu\n", n, hash_list, db->dbf.page_count);
 	while (n--) {
 		char* page = dbfile_get_page(&db->dbf, hash_list);
 		int32_t* reader = (int32_t*)page;
@@ -874,6 +874,14 @@ int32_t database_hashlist_get_n(struct database* db, int32_t hash_list, size_t n
 	return hash_list;
 }
 
+/*#define SEC_TO_US(sec) ((sec)*1000000)
+#define NS_TO_US(ns)    ((ns)/1000)
+static uint64_t micros_stamp() {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
+    uint64_t us = SEC_TO_US((uint64_t)ts.tv_sec) + NS_TO_US((uint64_t)ts.tv_nsec);
+    return us;
+}*/
 int database_rehash_into(struct database* db, const int32_t* store_ptr, int32_t hash_list, size_t hash_size) {
 	if (store_ptr[0] < 1) {
 		return 0;
@@ -926,6 +934,7 @@ void database_populate_hash_pages(struct database* db) {
 }
 
 int database_expand(struct database* db, size_t n_blocks) {
+	printf("Expanding Start %ld\n", time(NULL));
 	size_t cur_block_count = database_get_hash_block_count(db);
 	size_t next_count = (cur_block_count + n_blocks);
 	size_t next_len = next_count * hashes_per_block(db->dbf.page_size);
@@ -959,6 +968,7 @@ int database_expand(struct database* db, size_t n_blocks) {
 	// now recompute the length
 	database_recomp_hash_len(db);
 	database_populate_hash_pages(db);
+	printf("Expanding End %ld\n", time(NULL));
 	return 1;
 }
 

@@ -18,7 +18,7 @@ static char* get_rand_str(size_t n) {
 	return buf;
 }
 
-static char* RAND_STR_ARR[100000];
+static char* RAND_STR_ARR[1000000];
 static const size_t RAND_ARR_SIZE = sizeof(RAND_STR_ARR) / sizeof(RAND_STR_ARR[0]);
 
 static void fill_rand_arr(void) {
