@@ -394,6 +394,29 @@ static void test_database_expand(void) {
 	database_close_and_remove(&db);
 }
 
+static void test_database_put_load_fact_expand(void) {
+	struct database db;
+	const char* key1 = "abcdef";
+	const char* val1 = "abcdefg";
+	const char* key2 = "abcddddddef";
+	const char* val2 = "abcdefg";
+	char* key1res = NULL;
+	int32_t factor_lim = 10000000;
+	CHECKIT(database_open(&db, "boof", NULL));
+	int32_t current_hash_root = database_get_hashroot(&db);
+	CHECKIT(factor_lim == database_set_factor_lim(&db, factor_lim));
+	CHECKIT(database_put(&db, key1, val1));
+	printf("load factor %f\n", database_get_load_factor(&db));
+	CHECKIT(database_put(&db, key2, val2));
+	// check if expansion occurred
+	int32_t second_root = database_get_hashroot(&db);
+	CHECKIT(second_root != current_hash_root);
+	key1res = database_get(&db, key1);
+	CHECKIT(strcmp(key1res, val1) == 0);
+	free(key1res);
+	database_close_and_remove(&db);
+}
+
 int main(int argc, char const *argv[])
 {
 	test_djb2_n();
@@ -416,5 +439,6 @@ int main(int argc, char const *argv[])
 	test_database_put_get_reopen();
 	test_database_load_factor();
 	test_database_expand();
+	test_database_put_load_fact_expand();
 	return _failures > 0 ? 3 : 0;
 }
