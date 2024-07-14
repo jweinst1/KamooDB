@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <limits.h>
+#include <time.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
@@ -103,6 +104,12 @@ void page_vec_deinit(struct page_vec* pvec) {
 	pvec->pages = NULL;
 }
 
+void page_vec_move(struct page_vec* dst, struct page_vec* src) {
+	dst->pages = src->pages;
+	dst->len = src->len;
+	dst->cap = src->cap;
+}
+
 enum dbstore_type {
 	DBSTORE_MEM_MAP
 	//DBSTORE_FILE, todo, in future
@@ -166,8 +173,12 @@ int dbfile_open(struct dbfile* dbf, const char* path, struct dbcfg* cfg) {
 
 size_t dbfile_grow(struct dbfile* dbf , size_t n_pages) {
 	if ((dbf->page_count + n_pages) > dbf->page_cap) {
+		size_t oldcap = dbf->page_cap;
 		dbf->page_cap += n_pages * 5;
-		dbf->pages = realloc(dbf->pages, dbf->page_cap);
+		// cannot do realloc because memory MUST be zero'd
+		char** temp = calloc(1, sizeof(char*) * dbf->page_cap);
+		memcpy(temp, dbf->pages, sizeof(char*) * oldcap);
+		dbf->pages = temp;
 	}
 	size_t size_increase = n_pages * dbf->page_size;
 	dbf->file_size += size_increase;
@@ -740,7 +751,8 @@ int32_t database_make_hash_blocks(struct database* db, size_t n_blocks) {
 	// now at end of list, begin adding
 	while(--n_blocks) {
 		int32_t new_block = dbfile_grow(&db->dbf, 1);
-		database_hash_init(dbfile_get_page(&db->dbf, new_block));
+		char * got = dbfile_get_page(&db->dbf, new_block);
+		database_hash_init(got);
 		reader[0] = new_block;
 		hash_iter = reader[0];
 		hash_page = dbfile_get_page(&db->dbf, hash_iter);
@@ -756,7 +768,7 @@ int32_t database_add_storage_blocks(struct database* db, int32_t size) {
 
 	int32_t toadd_to = database_find_space_block(db);
 	char* adding_space = dbfile_get_page(&db->dbf, toadd_to);
-	database_place_ptr_in_len_block(adding_space, new_block, 0, size);
+	database_place_ptr_in_len_block(adding_space, new_block, 0, block_count * db->dbf.page_size);
 	return new_block;
 }
 
@@ -764,7 +776,6 @@ int database_allocate_storage(struct database* db, int32_t size, int32_t* result
 	int did_inc = 0;
 	while (database_find_space_storage(db, size, result) == -1) {
 		did_inc = 1;
-		printf("added\n");
 		database_add_storage_blocks(db, size);
 	}
 	return did_inc;
@@ -861,7 +872,6 @@ int32_t* database_rehash_and_probe(struct database* db, int32_t sblock, int32_t*
 }
 
 int32_t database_hashlist_get_n(struct database* db, int32_t hash_list, size_t n) {
-	//printf("hash n %zu, hl %d,  pc, %zu\n", n, hash_list, db->dbf.page_count);
 	while (n--) {
 		char* page = dbfile_get_page(&db->dbf, hash_list);
 		int32_t* reader = (int32_t*)page;
@@ -870,7 +880,8 @@ int32_t database_hashlist_get_n(struct database* db, int32_t hash_list, size_t n
 	return hash_list;
 }
 
-int database_rehash_into(struct database* db, const int32_t* store_ptr, int32_t hash_list, size_t hash_size) {
+
+int database_rehash_into(struct database* db, const int32_t* store_ptr, struct page_vec* pvec, size_t hash_size) {
 	if (store_ptr[0] < 1) {
 		return 0;
 	}
@@ -878,14 +889,23 @@ int database_rehash_into(struct database* db, const int32_t* store_ptr, int32_t 
 	size_t hash_slot = rehash % hash_size;
 	size_t hash_each_block = hashes_per_block(db->dbf.page_size);
 	int32_t hash_place = hash_slot % hash_each_block;
-	int32_t into_block = database_hashlist_get_n(db, hash_list, hash_slot / hash_each_block);
+	//int32_t into_block = database_hashlist_get_n(db, hash_list, hash_slot / hash_each_block);
+	int32_t into_block = pvec->pages[hash_slot / hash_each_block];
 	int32_t* cur_spot = database_rehash_and_probe(db, into_block, &hash_place);
 	if (cur_spot != NULL) {
 		_write_storage_ptr_hash(cur_spot, store_ptr);
 		return 1;
 	}
 	// iterate over other blocks
-	int32_t list_place = hash_list;
+	for (size_t i = 0; i < pvec->len; ++i)
+	{
+		int32_t* list_spot = database_rehash_and_probe(db, i, NULL);
+		if (list_spot != NULL) {
+			_write_storage_ptr_hash(list_spot, store_ptr);
+			return 1;
+		}
+	}
+	/*int32_t list_place = hash_list;
 	while (list_place != -1) {
 		int32_t* list_spot = database_rehash_and_probe(db, list_place, NULL);
 		if (list_spot != NULL) {
@@ -895,7 +915,7 @@ int database_rehash_into(struct database* db, const int32_t* store_ptr, int32_t 
 		char* list_block = dbfile_get_page(&db->dbf, list_place);
 		int32_t* reader = (int32_t*)list_block;
 		list_place = reader[0];
-	}
+	}*/
 	return 0;
 }
 
@@ -911,21 +931,25 @@ char* database_adv_to_val(struct database* db, const int32_t* store_ptr, size_t 
 	return strbuf;
 }
 
-void database_populate_hash_pages(struct database* db) {
-	page_vec_clear(&db->hash_pages);
-	int32_t iter = database_get_hashroot(db);
+void database_populate_hash_pages(struct database* db, int32_t hash_list, struct page_vec* pv) {
+	page_vec_clear(pv);
+	int32_t iter = hash_list;
 	while (iter != -1) {
-		page_vec_push(&db->hash_pages, iter);
+		page_vec_push(pv, iter);
 		char* page = dbfile_get_page(&db->dbf, iter);
 		iter = ((int32_t*)page)[0];
 	}
 }
 
 int database_expand(struct database* db, size_t n_blocks) {
+	printf("Expanding Start %ld\n", time(NULL));
+	struct page_vec tmpvec;
+	page_vec_init(&tmpvec);
 	size_t cur_block_count = database_get_hash_block_count(db);
 	size_t next_count = (cur_block_count + n_blocks);
 	size_t next_len = next_count * hashes_per_block(db->dbf.page_size);
 	int32_t new_hash_lists = database_make_hash_blocks(db, next_count);
+	database_populate_hash_pages(db, new_hash_lists, &tmpvec);
 	int32_t old_hash_root = database_get_hashroot(db);
 	int32_t hashiter = old_hash_root;
 	while (hashiter != -1) {
@@ -935,7 +959,7 @@ int database_expand(struct database* db, size_t n_blocks) {
 		int32_t* iter = begin;
 		// to do
 		while (iter != end) {
-			database_rehash_into(db, iter, new_hash_lists, next_len);
+			database_rehash_into(db, iter, &tmpvec, next_len);
 			iter += HASHSTORAGE_PTR_SIZE_INT;
 		}
 		hashiter = ((int32_t*)(page))[0];
@@ -954,7 +978,10 @@ int database_expand(struct database* db, size_t n_blocks) {
 	}
 	// now recompute the length
 	database_recomp_hash_len(db);
-	database_populate_hash_pages(db);
+	page_vec_clear(&db->hash_pages);
+	page_vec_move(&db->hash_pages, &tmpvec);
+	//database_populate_hash_pages(db, new_hash_lists, &db->hash_pages);
+	printf("Expanding End %ld\n", time(NULL));
 	return 1;
 }
 
@@ -1112,7 +1139,7 @@ int database_open(struct database* db, const char* pathfile, struct dbcfg* cfg) 
 	}
 	db->dbf.page_size = database_get_page_size(db);
 	page_vec_init(&db->hash_pages);
-	database_populate_hash_pages(db);
+	database_populate_hash_pages(db, database_get_hashroot(db), &db->hash_pages);
 	return 1;
 }
 
