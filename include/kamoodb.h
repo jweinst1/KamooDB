@@ -166,8 +166,12 @@ int dbfile_open(struct dbfile* dbf, const char* path, struct dbcfg* cfg) {
 
 size_t dbfile_grow(struct dbfile* dbf , size_t n_pages) {
 	if ((dbf->page_count + n_pages) > dbf->page_cap) {
+		size_t oldcap = dbf->page_cap;
 		dbf->page_cap += n_pages * 5;
-		dbf->pages = realloc(dbf->pages, dbf->page_cap);
+		// cannot do realloc because memory MUST be zero'd
+		char** temp = calloc(1, sizeof(char*) * dbf->page_cap);
+		memcpy(temp, dbf->pages, sizeof(char*) * oldcap);
+		dbf->pages = temp;
 	}
 	size_t size_increase = n_pages * dbf->page_size;
 	dbf->file_size += size_increase;
@@ -740,7 +744,8 @@ int32_t database_make_hash_blocks(struct database* db, size_t n_blocks) {
 	// now at end of list, begin adding
 	while(--n_blocks) {
 		int32_t new_block = dbfile_grow(&db->dbf, 1);
-		database_hash_init(dbfile_get_page(&db->dbf, new_block));
+		char * got = dbfile_get_page(&db->dbf, new_block);
+		database_hash_init(got);
 		reader[0] = new_block;
 		hash_iter = reader[0];
 		hash_page = dbfile_get_page(&db->dbf, hash_iter);
@@ -756,7 +761,7 @@ int32_t database_add_storage_blocks(struct database* db, int32_t size) {
 
 	int32_t toadd_to = database_find_space_block(db);
 	char* adding_space = dbfile_get_page(&db->dbf, toadd_to);
-	database_place_ptr_in_len_block(adding_space, new_block, 0, size);
+	database_place_ptr_in_len_block(adding_space, new_block, 0, block_count * db->dbf.page_size);
 	return new_block;
 }
 
@@ -764,7 +769,6 @@ int database_allocate_storage(struct database* db, int32_t size, int32_t* result
 	int did_inc = 0;
 	while (database_find_space_storage(db, size, result) == -1) {
 		did_inc = 1;
-		printf("added\n");
 		database_add_storage_blocks(db, size);
 	}
 	return did_inc;
