@@ -345,7 +345,6 @@ void dbfile_remove(struct dbfile* dbf) {
 // number = 4 bytes
 // offset in page 4 bytes
 // size = 4 bytes
-// hash len = 4 bytes <--- used for rehashes
 //
 // hash blocks
 // * dependent on page size
@@ -377,6 +376,7 @@ static const size_t HASH_BLOCK_HEADER_SIZE = sizeof(int32_t);
 static const size_t DB_HEADER_PAGE_SIZE_OFF = sizeof(MAGIC_SEQ) + (sizeof(int32_t) * 2);
 static const size_t DB_HEADER_HASH_LEN_OFF = sizeof(MAGIC_SEQ) + (sizeof(int32_t) * 3);
 static const size_t DB_HEADER_ITEM_COUNT_OFF = sizeof(MAGIC_SEQ) + (sizeof(int32_t) * 4);
+static const size_t DB_HEADER_FACT_LIM_OFF = sizeof(MAGIC_SEQ) + (sizeof(int32_t) * 4) + sizeof(int64_t);
 
 
 size_t items_per_block(size_t page_size) {
@@ -530,6 +530,23 @@ int32_t database_get_page_size(struct database* db) {
 	char* header = dbfile_get_page(&db->dbf, 0);
 	int32_t page_size = *(int32_t*)(header + DB_HEADER_PAGE_SIZE_OFF);
 	return page_size;
+}
+
+int database_get_factor_lim(struct database* db, double* result) {
+	char* header = dbfile_get_page(&db->dbf, 0);
+	int32_t fact_lim = *(int32_t*)(header + DB_HEADER_FACT_LIM_OFF);
+	if (fact_lim > 0) {
+		*result = 1.0 / (double)fact_lim;
+		return 1;
+	}
+	return 0;
+}
+
+int32_t database_set_factor_lim(struct database* db, int32_t amount) {
+	char* header = dbfile_get_page(&db->dbf, 0);
+	int32_t* fact_lim = (int32_t*)(header + DB_HEADER_FACT_LIM_OFF);
+	*fact_lim = amount;
+	return amount;
 }
 
 int64_t database_get_item_count(struct database* db) {
@@ -941,8 +958,18 @@ int database_expand(struct database* db, size_t n_blocks) {
 	return 1;
 }
 
+void database_check_and_maybe_expand(struct database* db) {
+	double fact = 0.0;
+	if (database_get_factor_lim(db, &fact)) {
+		if (database_get_load_factor(db) > fact) {
+			database_expand(db, database_get_hash_block_count(db));
+		}
+	}
+}
+
 int database_put(struct database* db, const char* key, const char* val) {
 	int32_t storage_place[3];
+	database_check_and_maybe_expand(db);
 	size_t key_hash = hash_djb2(key);
 	size_t key_size = strlen(key) + 1;
 	size_t val_size = strlen(val) + 1;
@@ -1045,6 +1072,7 @@ void database_init(struct database* db) {
 	int32_t roots[2];
 	int32_t hash_len = 1;
 	int64_t item_count = 0;
+	int32_t factor_limit = 2;
 	struct dbfile* dbf = &db->dbf;
 	char* header = dbfile_get_page(dbf, 0);
 	header[0] = MAGIC_SEQ[0];
@@ -1064,6 +1092,8 @@ void database_init(struct database* db) {
 	memcpy(header, &hash_len, sizeof(hash_len));
 	header += sizeof(hash_len);
 	memcpy(header, &item_count, sizeof(item_count)); // used for load factor
+	header += sizeof(item_count);
+	memcpy(header, &factor_limit, sizeof(factor_limit)); // used to tell when to expand
 	// init roots
 	char* hash_page = dbfile_get_page(dbf, hash_root);
 	char* space_page = dbfile_get_page(dbf, space_root);
