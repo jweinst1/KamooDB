@@ -203,8 +203,7 @@ char* dbfile_get_page(struct dbfile* dbf, size_t n) {
 	return dbf->pages[n];
 }
 
-void dbfile_sync_page(struct dbfile* dbf, size_t n) {
-	char* page = dbfile_get_page(dbf, n);
+void dbfile_sync_page(struct dbfile* dbf, char* page) {
 	msync(page, dbf->page_size, MS_SYNC);
 }
 
@@ -232,6 +231,7 @@ int dbfile_write(struct dbfile* dbf, size_t offset, const char* data, size_t siz
 		data += to_write;
 		cur_off = 0;
 		// to do page syncing
+		dbfile_sync_page(dbf, page);
 		++cur_page; 
 	}
 	return 1;
@@ -905,17 +905,6 @@ int database_rehash_into(struct database* db, const int32_t* store_ptr, struct p
 			return 1;
 		}
 	}
-	/*int32_t list_place = hash_list;
-	while (list_place != -1) {
-		int32_t* list_spot = database_rehash_and_probe(db, list_place, NULL);
-		if (list_spot != NULL) {
-			_write_storage_ptr_hash(list_spot, store_ptr);
-			return 1;
-		}
-		char* list_block = dbfile_get_page(&db->dbf, list_place);
-		int32_t* reader = (int32_t*)list_block;
-		list_place = reader[0];
-	}*/
 	return 0;
 }
 
@@ -942,7 +931,7 @@ void database_populate_hash_pages(struct database* db, int32_t hash_list, struct
 }
 
 int database_expand(struct database* db, size_t n_blocks) {
-	printf("Expanding Start %ld\n", time(NULL));
+	//printf("Expanding Start %ld\n", time(NULL));
 	struct page_vec tmpvec;
 	page_vec_init(&tmpvec);
 	size_t cur_block_count = database_get_hash_block_count(db);
@@ -981,7 +970,7 @@ int database_expand(struct database* db, size_t n_blocks) {
 	page_vec_clear(&db->hash_pages);
 	page_vec_move(&db->hash_pages, &tmpvec);
 	//database_populate_hash_pages(db, new_hash_lists, &db->hash_pages);
-	printf("Expanding End %ld\n", time(NULL));
+	//printf("Expanding End %ld\n", time(NULL));
 	return 1;
 }
 
