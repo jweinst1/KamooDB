@@ -28,6 +28,27 @@ make test
 
 Kamoo is currently packaged as a single header file called `kamoodb.h` . You can include this in any C or C++ program, or embed it in languages that support running or using C code.
 
+The following C code demonstrates some basic operations that are performed using the C api:
+
+```c
+	const char* key1 = "abcdef";
+	const char* val1 = "abcdefg";
+	char* key1res = NULL;
+	database_open(&db, "mydbpath", NULL);
+	database_put(&db, key1, val1);
+	key1res = database_get(&db, key1);
+	if (strcmp(key1res, val1) == 0) {
+		printf("Found the value %s\n", key1res);
+	}
+	free(key1res);
+	database_del(&db, key1);
+
+	if (database_get(&db, key1) == NULL) {
+		puts("The key has been deleted!\n");
+	}
+	database_close(&db);
+```
+
 ## Goal
 
 The goal of Kamoo is to provide a single file, light weight, yet fast key value store, that can be used in similar settings to sqlite, but is entirely focused on key-value operations. 
