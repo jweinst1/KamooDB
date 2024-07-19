@@ -54,3 +54,13 @@ database_close(&db);
 ## Goal
 
 The goal of Kamoo is to provide a single file, light weight, yet fast key value store, that can be used in similar settings to sqlite, but is entirely focused on key-value operations. 
+
+## Design
+
+Kamoo's design centers around an on-disk format that can be sliced into equal sized chunks called pages. These pages have different roles depending on the portion of the database they are used in. Currently, a page must be a size that is a multiple of the page size from calling `sysconf` . The first four bytes of a page represent the "next" page, similar to a singly linked list. These four bytes are always a 32 bit signed integer, indicating the page number. This also means the maximum number of pages in a KamooDB file is 2,147,483,647.
+
+The types of pages in Kamoo are listed below:
+
+* Header: The first page of a Kamoo document is the header page. The header page contains various information about the database file, like the load factor, the hash roots, space block roots, as well as the total number of items stored.
+* Hash: A hash page or block is a page that serves as part of the hash table itself. These blocks have a next block 4 byte section at the beginning of the block, and the remainder of the block is used for 12 byte storage pointers
+* space: A space page or block is essentially a free list of storage memory within a file. These are blocks that begin with a 4 byte next block pointer, followed by a 32 bit signed integer length.
